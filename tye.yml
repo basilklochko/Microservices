@@ -1,0 +1,17 @@
+services:
+- name: bookingservice
+  project: BookingService/BookingService.csproj
+  bindings:
+  - port: 5069
+- name: hotelservice
+  project: HotelService/HotelService.csproj
+  bindings:
+  - port: 5053
+- name: airservice
+  project: AirService/AirService.csproj
+  bindings:
+  - port: 5064  
+- name: client
+  project: Client/Client.csproj
+  bindings:
+  - port: 5187  

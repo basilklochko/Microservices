@@ -1,0 +1,13 @@
+
+AirService/bin/
+AirService/obj/
+bin/
+obj/
+BookingService/bin/
+BookingService/obj/
+Client/obj/
+Common/obj/
+HotelService/bin/
+HotelService/obj/
+Kafka/obj/
+Model/obj/

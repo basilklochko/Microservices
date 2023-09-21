@@ -1,0 +1,284 @@
+﻿@page "/"
+
+@inject HttpClient _http
+
+<Button Type="@ButtonType.Primary" OnClick="NewBooking">New Booking</Button>
+<hr />
+
+<div>
+    <Row>
+        <Col style="width: 100%">
+        <Card Bordered="false" Title="@("Bookings")">
+
+            <Body>
+                <Table TItem="Order" DataSource="@bookings.OrderByDescending(o => o.UpdatedAt)">
+                    <Column Field="@context.OrderId" Title="Id" />
+                    <ActionColumn Title="Booking">
+                        <span>@($"{context.UpdatedAt} - ")</span>
+                        @if (context.Status == OrderStatus.Pending)
+                            {
+                            <span>@(context.Status)</span>
+                            }
+                            @if (context.Status == OrderStatus.Canceled)
+                            {
+                            <span style="color: orange; font-weight: 600;">@(context.Status)</span>
+                            }
+                            @if (context.Status == OrderStatus.Confirmed)
+                            {
+                            <span style="color: green; font-weight: 600;">@(context.Status)</span>
+                            }
+                    </ActionColumn>
+
+                    <ActionColumn Title="Air">
+                            @if (context.Air is not null)
+                            {
+                            <span>@($"{context.Air.UpdatedAt} - ")</span>
+                                @if (context.Air.Status == OrderStatus.Pending)
+                                {
+                                <span>@(context.Air.Status)</span>
+                                }
+                                @if (context.Air.Status == OrderStatus.Canceled)
+                                {
+                                <span style="color: orange; font-weight: 600;">@(context.Air.Status)</span>
+                                }
+                                @if (context.Air.Status == OrderStatus.Confirmed)
+                                {
+                                <span style="color: green; font-weight: 600;">@(context.Air.Status)</span>
+                                }
+                                @if (context.Air.Status == OrderStatus.Failed)
+                                {
+                                <span style="color: red; font-weight: 600;">@(context.Air.Status)</span>
+                                }
+
+                            <br />
+                            <b>@($"{context.Air.Name}")</b>
+                            }
+                    </ActionColumn>
+
+                    <ActionColumn Title="Hotel">
+                            @if (context.Hotel is not null)
+                            {
+                            <span>@($"{context.Hotel.UpdatedAt} - ")</span>
+                                @if (context.Hotel.Status == OrderStatus.Pending)
+                                {
+                                <span>@(context.Hotel.Status)</span>
+                                }
+                                @if (context.Hotel.Status == OrderStatus.Canceled)
+                                {
+                                <span style="color: orange; font-weight: 600;">@(context.Hotel.Status)</span>
+                                }
+                                @if (context.Hotel.Status == OrderStatus.Confirmed)
+                                {
+                                <span style="color: green; font-weight: 600;">@(context.Hotel.Status)</span>
+                                }
+                                @if (context.Hotel.Status == OrderStatus.Failed)
+                                {
+                                <span style="color: red; font-weight: 600;">@(context.Hotel.Status)</span>
+                                }
+
+                            <br />
+                            <b>@($"{context.Hotel.Name}")</b>
+                            }
+                    </ActionColumn>
+                </Table>
+            </Body>
+        </Card>
+        </Col>
+    </Row>
+</div>
+
+@code {
+    private const string API = "http://localhost:5069/api/";
+
+    private HubConnection _bookingHub = new HubConnectionBuilder()
+    .WithUrl("http://localhost:5069/booking")
+    .WithAutomaticReconnect()
+    .Build();
+
+    private HubConnection _airHub = new HubConnectionBuilder()
+    .WithUrl("http://localhost:5064/air")
+    .WithAutomaticReconnect()
+    .Build();
+
+    private HubConnection _hotelHub = new HubConnectionBuilder()
+    .WithUrl("http://localhost:5053/hotel")
+    .WithAutomaticReconnect()
+    .Build();
+
+    List<Order> bookings = new();
+
+    private CancellationTokenSource ctsBooking = new CancellationTokenSource();
+    private CancellationTokenSource ctsAir = new CancellationTokenSource();
+    private CancellationTokenSource ctsHotel = new CancellationTokenSource();
+
+    protected override async Task OnInitializedAsync()
+    {
+        bookings = await _http.GetFromJsonAsync<List<Order>>($"{API}booking");
+
+        await ConnectWithRetryAsync(_bookingHub, ctsBooking.Token);
+        await ConnectWithRetryAsync(_airHub, ctsAir.Token);
+        await ConnectWithRetryAsync(_hotelHub, ctsHotel.Token);
+
+        SetEvents();
+
+        _bookingHub.Closed += error =>
+        {
+            return ConnectWithRetryAsync(_bookingHub, ctsBooking.Token);
+        };
+        _airHub.Closed += error =>
+        {
+            return ConnectWithRetryAsync(_airHub, ctsAir.Token);
+        };
+        _hotelHub.Closed += error =>
+        {
+            return ConnectWithRetryAsync(_hotelHub, ctsHotel.Token);
+        };
+    }
+
+    private void SetEvents()
+    {
+        _bookingHub.On<Order>("Added", order =>
+        {
+            bookings.Add(order);
+
+            StateHasChanged();
+        });
+        _airHub.On<Orderable>("Added", order =>
+        {
+            UpdateAir(order);
+
+            StateHasChanged();
+        });
+        _hotelHub.On<Orderable>("Added", order =>
+        {
+            UpdateHotel(order);
+
+            StateHasChanged();
+        });
+
+        _bookingHub.On<Order>("Canceled", order =>
+        {
+            var temp = new Order[bookings.Count];
+            bookings.CopyTo(0, temp, 0, bookings.Count);
+
+            var index = temp.ToList().FindIndex(o => o.OrderId == order.OrderId);
+            temp[index] = order;
+
+            bookings = temp.ToList();
+
+            StateHasChanged();
+        });
+        _airHub.On<Orderable>("Canceled", order =>
+        {
+            UpdateAir(order);
+
+            StateHasChanged();
+        });
+        _hotelHub.On<Orderable>("Canceled", order =>
+        {
+            UpdateHotel(order);
+
+            StateHasChanged();
+        });
+
+        _bookingHub.On<Order>("Confirmed", order =>
+        {
+            var temp = new Order[bookings.Count];
+            bookings.CopyTo(0, temp, 0, bookings.Count);
+
+            var index = temp.ToList().FindIndex(o => o.OrderId == order.OrderId);
+            temp[index] = order;
+
+            bookings = temp.ToList();
+
+            StateHasChanged();
+        });
+        _airHub.On<Orderable>("Confirmed", order =>
+        {
+            UpdateAir(order);
+
+            StateHasChanged();
+        });
+        _hotelHub.On<Orderable>("Confirmed", order =>
+        {
+            UpdateHotel(order);
+
+            StateHasChanged();
+        });
+
+        _airHub.On<Orderable>("Failed", order =>
+        {
+            UpdateAir(order);
+
+            StateHasChanged();
+        });
+        _hotelHub.On<Orderable>("Failed", order =>
+        {
+            UpdateHotel(order);
+
+            StateHasChanged();
+        });
+    }
+
+    private async Task<bool> ConnectWithRetryAsync(HubConnection connection, CancellationToken token)
+    {
+        while (true)
+        {
+            try
+            {
+                await connection.StartAsync(token);
+                return true;
+            }
+            catch when (token.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch
+            {
+                await Task.Delay(1000);
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ctsBooking.Cancel();
+        ctsBooking.Dispose();
+
+        ctsAir.Cancel();
+        ctsAir.Dispose();
+
+        ctsHotel.Cancel();
+        ctsHotel.Dispose();
+
+        await _bookingHub.DisposeAsync();
+        await _airHub.DisposeAsync();
+        await _hotelHub.DisposeAsync();
+    }
+    private async Task NewBooking()
+    {
+        await _http.PostAsJsonAsync<string>($"{API}booking", string.Empty);
+    }
+
+    private void UpdateAir(Orderable order)
+    {
+        var temp = new Order[bookings.Count];
+        bookings.CopyTo(0, temp, 0, bookings.Count);
+
+        var index = temp.ToList().FindIndex(o => o.OrderId == order.OrderId);
+        temp[index].Air = order;
+
+        bookings = temp.ToList();
+    }
+
+    private void UpdateHotel(Orderable order)
+    {
+        var temp = new Order[bookings.Count];
+        bookings.CopyTo(0, temp, 0, bookings.Count);
+
+        var index = temp.ToList().FindIndex(o => o.OrderId == order.OrderId);
+        temp[index].Hotel = order;
+
+        bookings = temp.ToList();
+    }
+}
